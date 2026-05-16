@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Add eBay Listing</title>
+  <script src="https://accounts.google.com/gsi/client" async defer onload="onGsiLoaded()"></script>
   <style>
     body { font-family: monospace; padding: 2rem; max-width: 700px; margin: auto; }
     label { display: block; margin-top: 1.2rem; font-weight: bold; }
@@ -51,6 +52,10 @@
     const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtobWVtZ3BpcXlka3pydXJibnNqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4NDYwMTksImV4cCI6MjA5NDQyMjAxOX0.9-LkkdHIbHczSrUm3aA411w9_bI9VCNaJjrBzHodeY8";
     const ADD_LISTING_URL = "https://khmemgpiqydkzrurbnsj.supabase.co/functions/v1/add-listing";
 
+    // Replace with your OAuth 2.0 client ID from Google Cloud Console
+    const GOOGLE_CLIENT_ID = "600467023890-rqmgrvpb6kl5502dgcifefu2jp0dgi1g.apps.googleusercontent.com";
+    const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+
     const params = new URLSearchParams(window.location.search);
     const form = document.getElementById("form");
     ["title", "descriptionUrl", "bin"].forEach(name => {
@@ -68,6 +73,40 @@
       gallery.appendChild(img);
     });
 
+    // Cached access token for this session
+    let accessToken = null;
+    let tokenClient = null;
+
+    function getTokenClient() {
+      if (!window.google?.accounts?.oauth2) {
+        throw new Error("Google Identity Services not loaded yet — try again in a moment.");
+      }
+      if (!tokenClient) {
+        tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: DRIVE_SCOPE,
+          callback: "", // assigned per-request below
+        });
+      }
+      return tokenClient;
+    }
+
+    function requestAccessToken() {
+      return new Promise((resolve, reject) => {
+        const client = getTokenClient();
+        client.callback = (resp) => {
+          if (resp.error) {
+            reject(new Error("Google sign-in failed: " + resp.error));
+          } else {
+            accessToken = resp.access_token;
+            resolve(accessToken);
+          }
+        };
+        // Empty prompt reuses an existing session silently; shows account picker only when needed
+        client.requestAccessToken({ prompt: accessToken ? "" : "select_account" });
+      });
+    }
+
     async function submit() {
       const errorDiv = document.getElementById("error");
       const btn = document.getElementById("submit");
@@ -75,13 +114,22 @@
       btn.disabled = true;
       btn.textContent = "Saving…";
 
-      const fd = new FormData();
-      fd.append("title",          form.title.value.trim());
-      fd.append("descriptionUrl", form.descriptionUrl.value.trim());
-      fd.append("bin",            form.bin.value.trim());
-      imageUrls.forEach(url => fd.append("imageUrls", url));
+      const title = form.title.value.trim();
+      const descriptionUrl = form.descriptionUrl.value.trim();
+      const bin = form.bin.value.trim();
 
       try {
+        btn.textContent = "Signing in to Google…";
+        if (!accessToken) await requestAccessToken();
+
+        const fd = new FormData();
+        fd.append("title", title);
+        fd.append("descriptionUrl", descriptionUrl);
+        fd.append("bin", bin);
+        fd.append("googleAccessToken", accessToken);
+        imageUrls.forEach(url => fd.append("imageUrls", url));
+
+        btn.textContent = "Saving…";
         const res = await fetch(ADD_LISTING_URL, {
           method: "POST",
           headers: { Authorization: "Bearer " + ANON_KEY },
@@ -91,16 +139,13 @@
         let body;
         try { body = JSON.parse(text); } catch { body = null; }
 
-        if (res.status === 201 && body?.listing) {
-          showResult(body.listing);
-        } else {
-          errorDiv.textContent = "Error (HTTP " + res.status + "):\n" + text;
-          errorDiv.style.display = "block";
-          btn.disabled = false;
-          btn.textContent = "Save Listing";
+        if (res.status !== 201 || !body?.listing) {
+          throw new Error("Error (HTTP " + res.status + "):\n" + text);
         }
+
+        showResult(body.listing);
       } catch (err) {
-        errorDiv.textContent = "Network error: " + err.message;
+        errorDiv.textContent = err.message;
         errorDiv.style.display = "block";
         btn.disabled = false;
         btn.textContent = "Save Listing";
@@ -118,8 +163,10 @@
         ["Created",     listing.created_at],
       ];
       if (listing.images?.length) {
-        const imgs = listing.images.map(u => `<img src="${u}" style="height:60px;margin-right:.3rem;">`).join("");
-        rows.push(["Images", imgs]);
+        const links = listing.images.map((u, i) =>
+          `<a href="${u}" target="_blank">Image ${i + 1}</a>`
+        ).join(" · ");
+        rows.push(["Images", links]);
       }
       table.innerHTML = rows.map(([k, v]) =>
         `<tr><td>${k}</td><td${k === "Description" ? ' class="description-cell"' : ""}>${v ?? ""}</td></tr>`
@@ -127,12 +174,16 @@
       resultDiv.style.display = "block";
     }
 
-    form.addEventListener("submit", (e) => { e.preventDefault(); submit(); });
+    document.getElementById("submit").disabled = true;
 
-    // Auto-submit if params were provided
-    if (params.get("title") || params.get("descriptionUrl")) {
-      submit();
+    function onGsiLoaded() {
+      document.getElementById("submit").disabled = false;
+      if (params.get("title") || params.get("descriptionUrl")) {
+        submit();
+      }
     }
+
+    form.addEventListener("submit", (e) => { e.preventDefault(); submit(); });
   </script>
 </body>
 </html>
