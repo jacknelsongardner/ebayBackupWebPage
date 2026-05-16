@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>add-listing bookmarklet</title>
+  <style>
+    body { font-family: monospace; padding: 2rem; max-width: 700px; margin: auto; }
+    a.bookmarklet {
+      display: inline-block; margin-top: 1rem; padding: .6rem 1.2rem;
+      background: #3ecf8e; color: #000; text-decoration: none;
+      border-radius: 4px; font-weight: bold;
+    }
+    .steps { margin-top: 2rem; }
+    .step { margin-bottom: 2rem; }
+    .step h3 { margin-bottom: 0.5rem; }
+    .step img { max-width: 100%; border: 1px solid #ccc; border-radius: 4px; display: block; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h2>add-listing — bookmarklet installer</h2>
+
+  <p>Drag the button below to your bookmarks bar, then click it on any eBay listing page. It will open a pre-filled form where you can review the title, description URL, and BIN before saving.</p>
+
+  <a class="bookmarklet" id="bm" href="#">⬆ Drag me to bookmarks bar</a>
+
+  <div class="steps">
+    <div class="step">
+      <h3>Step 1 — Make sure bookmarks are enabled</h3>
+      <img src="step1.gif" alt="Enable bookmarks bar" />
+    </div>
+    <div class="step">
+      <h3>Step 2 — Drag and drop the bookmark to your bookmarks bar. Name it whatever you like.</h3>
+      <img src="step2.gif" alt="Drag bookmark to bookmarks bar" />
+    </div>
+    <div class="step">
+      <h3>Step 3 — On a listing you wish to back up, click the bookmark you saved.</h3>
+      <img src="step3.gif" alt="Click the bookmark on an eBay listing" />
+    </div>
+  </div>
+
+  <script>
+    const CONFIG = {
+      formUrl: "http://ebaybackupserver.duckdns.org:5500/bookmarklet/add-listing-form.html",
+    };
+
+    const bookmarkletFn = `(async function(){
+  const cfg=${JSON.stringify(CONFIG)};
+  const title=document.querySelector('h1.x-item-title__mainTitle .ux-textspans--BOLD')?.innerText?.trim();
+  const descriptionUrl=document.querySelector('#desc_ifr')?.src;
+  if(!title||!descriptionUrl){alert("Please use this on an eBay listing page and make sure the title and description are visible.");return;}
+  async function collectEbayImageUrls(){
+    const urls=[];
+    const buttons=document.querySelectorAll('.ux-image-grid-item.image-treatment.rounded-edges');
+    for(const button of buttons){
+      button.click();
+      await new Promise(r=>setTimeout(r,500));
+      const slides=document.querySelectorAll('.ux-image-carousel-item.image-treatment.active.image');
+      for(const slide of slides){
+        const img=slide.querySelector('img');
+        if(img&&img.src&&!urls.includes(img.src))urls.push(img.src);
+      }
+    }
+    return urls;
+  }
+  const imageUrls=await collectEbayImageUrls();
+  const url=cfg.formUrl+'?title='+encodeURIComponent(title)+'&descriptionUrl='+encodeURIComponent(descriptionUrl)+'&imageUrls='+encodeURIComponent(JSON.stringify(imageUrls));
+  window.open(url,'_blank');
+})();`;
+
+    document.getElementById("bm").href = "javascript:" + encodeURIComponent(bookmarkletFn);
+  </script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Add eBay Listing</title>
+  <style>
+    body { font-family: monospace; padding: 2rem; max-width: 700px; margin: auto; }
+    label { display: block; margin-top: 1.2rem; font-weight: bold; }
+    input[type="text"] { width: 100%; box-sizing: border-box; padding: .4rem .6rem; font-family: inherit; font-size: 1rem; margin-top: .3rem; }
+    #image-gallery { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+    #image-gallery img { height: 80px; width: auto; border: 1px solid #ddd; border-radius: 3px; }
+    button[type="submit"] {
+      display: inline-block; margin-top: 1.5rem; padding: .6rem 1.4rem;
+      background: #3ecf8e; color: #000; border: none; border-radius: 4px;
+      font-family: inherit; font-size: 1rem; font-weight: bold; cursor: pointer;
+    }
+    button[type="submit"]:disabled { opacity: .6; cursor: default; }
+    #error { margin-top: 1rem; color: red; display: none; white-space: pre-wrap; }
+    #result { margin-top: 1.5rem; display: none; }
+    #result h3 { margin: 0 0 .8rem; }
+    #result table { border-collapse: collapse; width: 100%; }
+    #result td { padding: .3rem .5rem; vertical-align: top; border: 1px solid #ddd; }
+    #result td:first-child { font-weight: bold; white-space: nowrap; width: 1%; }
+    #result .description-cell { max-height: 8rem; overflow-y: auto; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h2>eBay listing successfully backed up!</h2>
+  <form id="form">
+    <label>Title
+      <input type="text" name="title" />
+    </label>
+    <label>Description URL
+      <input type="text" name="descriptionUrl" />
+    </label>
+    <label>BIN
+      <input type="text" name="bin" />
+    </label>
+    <label>Images
+      <div id="image-gallery"></div>
+    </label>
+    <button type="submit" id="submit">Save Listing</button>
+  </form>
+  <div id="error"></div>
+  <div id="result">
+    <h3>Saved</h3>
+    <table id="result-table"></table>
+  </div>
+
+  <script>
+    const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtobWVtZ3BpcXlka3pydXJibnNqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4NDYwMTksImV4cCI6MjA5NDQyMjAxOX0.9-LkkdHIbHczSrUm3aA411w9_bI9VCNaJjrBzHodeY8";
+    const ADD_LISTING_URL = "https://khmemgpiqydkzrurbnsj.supabase.co/functions/v1/add-listing";
+
+    const params = new URLSearchParams(window.location.search);
+    const form = document.getElementById("form");
+    ["title", "descriptionUrl", "bin"].forEach(name => {
+      const val = params.get(name);
+      if (val) form[name].value = val;
+    });
+
+    let imageUrls = [];
+    try { imageUrls = JSON.parse(params.get("imageUrls") || "[]"); } catch {}
+    const gallery = document.getElementById("image-gallery");
+    imageUrls.forEach(url => {
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = "";
+      gallery.appendChild(img);
+    });
+
+    async function submit() {
+      const errorDiv = document.getElementById("error");
+      const btn = document.getElementById("submit");
+      errorDiv.style.display = "none";
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+
+      const fd = new FormData();
+      fd.append("title",          form.title.value.trim());
+      fd.append("descriptionUrl", form.descriptionUrl.value.trim());
+      fd.append("bin",            form.bin.value.trim());
+      imageUrls.forEach(url => fd.append("imageUrls", url));
+
+      try {
+        const res = await fetch(ADD_LISTING_URL, {
+          method: "POST",
+          headers: { Authorization: "Bearer " + ANON_KEY },
+          body: fd,
+        });
+        const text = await res.text();
+        let body;
+        try { body = JSON.parse(text); } catch { body = null; }
+
+        if (res.status === 201 && body?.listing) {
+          showResult(body.listing);
+        } else {
+          errorDiv.textContent = "Error (HTTP " + res.status + "):\n" + text;
+          errorDiv.style.display = "block";
+          btn.disabled = false;
+          btn.textContent = "Save Listing";
+        }
+      } catch (err) {
+        errorDiv.textContent = "Network error: " + err.message;
+        errorDiv.style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "Save Listing";
+      }
+    }
+
+    function showResult(listing) {
+      form.style.display = "none";
+      const resultDiv = document.getElementById("result");
+      const table = document.getElementById("result-table");
+      const rows = [
+        ["Title",       listing.title],
+        ["BIN",         listing.bin_number],
+        ["Description", listing.description],
+        ["Created",     listing.created_at],
+      ];
+      if (listing.images?.length) {
+        const imgs = listing.images.map(u => `<img src="${u}" style="height:60px;margin-right:.3rem;">`).join("");
+        rows.push(["Images", imgs]);
+      }
+      table.innerHTML = rows.map(([k, v]) =>
+        `<tr><td>${k}</td><td${k === "Description" ? ' class="description-cell"' : ""}>${v ?? ""}</td></tr>`
+      ).join("");
+      resultDiv.style.display = "block";
+    }
+
+    form.addEventListener("submit", (e) => { e.preventDefault(); submit(); });
+
+    // Auto-submit if params were provided
+    if (params.get("title") || params.get("descriptionUrl")) {
+      submit();
+    }
+  </script>
+</body>
+</html>
